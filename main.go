@@ -14,13 +14,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 )
 
-// Redirect image requests for example.com/ubuntu -> ubuntu
-// Redirect image requests for example.com/example.biz/foo/bar -> example.biz/foo/bar
 func main() {
 	flag.Parse()
 
 	http.HandleFunc("/v2/", handler)
-	http.HandleFunc("/token", handler)
 
 	log.Println("Starting...")
 	port := os.Getenv("PORT")
@@ -51,6 +48,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func proxy(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
 	parts := strings.Split(r.URL.Path, "/")
 
 	// /v2/ubuntu/manifests/latest -> ubuntu
@@ -61,10 +60,9 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("error parsing repository name: %s", err), http.StatusBadRequest)
 		return
 	}
-	repo.RegistryStr()
 
 	url := fmt.Sprintf("https://%s/v2/%s/%s", repo.RegistryStr(), repo.RepositoryStr(), strings.Join(parts[len(parts)-2:], "/"))
-	log.Println("--> GET", url)
+	log.Println("-->", r.Method, r.URL)
 	req, _ := http.NewRequest(r.Method, url, nil)
 	for k, v := range r.Header {
 		for _, vv := range v {
@@ -72,8 +70,30 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 			if k == "Authorization" {
 				vv = "REDACTED"
 			}
-			log.Println("--> header", k, vv)
+			log.Printf("--> %s: %s", k, vv)
 		}
+	}
+
+	isManifestTagRequest := parts[len(parts)-2] == "manifests" &&
+		!strings.HasPrefix(parts[len(parts)-1], "sha256:")
+
+	// If this is a request for manifest by tag, check Rekor to see if we have a digest for it.
+	var tag name.Tag
+	var wantDigest string
+	if isManifestTagRequest {
+		tagstr := parts[len(parts)-1]
+		var err error
+		tag, err = name.NewTag(fmt.Sprintf("%s:%s", repo.String(), tagstr))
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error parsing tag: %s", err), http.StatusInternalServerError)
+			return
+		}
+		wantDigest, err = rekorGet(ctx, tag)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error looking up digest for tag %s: %s", tag, err), http.StatusInternalServerError)
+			return
+		}
+		log.Println("=== REKOR: found digest for tag", tag, wantDigest)
 	}
 
 	// If the request is coming in without auth, get some auth.
@@ -82,7 +102,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 	// that would have required /v2 to point to /token and for /token to
 	// have generated some creds.
 	if req.Header.Get("Authorization") == "" {
-		log.Println("Getting token...")
+		log.Println("  Getting token...")
 		t, err := getToken(repo)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -91,38 +111,53 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 		req.Header.Set("Authorization", "Bearer "+t)
 	}
 
-	log.Println("-->", req.Method, req.URL)
 	resp, err := http.DefaultTransport.RoundTrip(req) // Transport doesn't follow redirects.
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
+
+	gotDigest := resp.Header.Get("Docker-Content-Digest")
+	if wantDigest != "" && gotDigest != wantDigest {
+		http.Error(w, fmt.Sprintf("got digest %q for tag %s, want %q", gotDigest, tag, wantDigest), http.StatusInternalServerError)
+		return
+	}
+
 	log.Println("<--", resp.StatusCode)
 	for k, v := range resp.Header {
 		for _, vv := range v {
-			log.Println("<-- header", k, vv)
+			log.Printf("<-- %s: %s", k, vv)
 			w.Header().Add(k, vv)
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	if parts[len(parts)-2] != "blobs" {
+	if parts[len(parts)-2] != "blobs" { // Never proxy blobs.
 		io.Copy(w, resp.Body)
+	}
+
+	if isManifestTagRequest && // If this is a request for manifest by tag,
+		gotDigest != "" && // and we have the digest now,
+		wantDigest == "" { // and we didn't have one before --> record it in Rekor.
+		log.Println("=== REKOR: writing digest for tag", tag, gotDigest)
+		if rekorPut(ctx, io.Discard, tag, gotDigest) != nil {
+			log.Println("!!! ERROR WRITING TO REKOR:", err)
+		}
 	}
 }
 
 func getToken(repo name.Repository) (string, error) {
 	// Ping /v2/, determine the registry's auth scheme.
 	url := fmt.Sprintf("https://%s/v2/", repo.RegistryStr())
-	log.Println("--> GET", url)
+	log.Println("  --> GET", url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return "", err
 	}
-	log.Println("<--", resp.StatusCode)
+	log.Println("  <--", resp.StatusCode)
 	for k, v := range resp.Header {
 		for _, vv := range v {
-			log.Println("<-- header", k, vv)
+			log.Printf("  <-- %s: %s", k, vv)
 		}
 	}
 	if resp.StatusCode == http.StatusOK {
@@ -143,15 +178,15 @@ func getToken(repo name.Repository) (string, error) {
 	service := chs[0].Parameters["service"]
 	realm := chs[0].Parameters["realm"]
 	url = fmt.Sprintf("%s?scope=repository:%s:pull&service=%s", realm, repo.RepositoryStr(), service)
-	log.Println("--> GET", url)
+	log.Println("  --> GET", url)
 	resp, err = http.Get(url)
 	if err != nil {
 		return "", err
 	}
-	log.Println("<--", resp.StatusCode)
+	log.Println("  <--", resp.StatusCode)
 	for k, v := range resp.Header {
 		for _, vv := range v {
-			log.Println("<-- header", k, vv)
+			log.Printf("  <-- %s: %s", k, vv)
 		}
 	}
 	if resp.StatusCode != http.StatusOK {
