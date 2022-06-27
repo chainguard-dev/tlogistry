@@ -1,0 +1,168 @@
+package main
+
+import (
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+
+	authchallenge "github.com/docker/distribution/registry/client/auth/challenge"
+	"github.com/google/go-containerregistry/pkg/name"
+)
+
+// Redirect image requests for example.com/ubuntu -> ubuntu
+// Redirect image requests for example.com/example.biz/foo/bar -> example.biz/foo/bar
+func main() {
+	flag.Parse()
+
+	http.HandleFunc("/v2/", handler)
+	http.HandleFunc("/token", handler)
+
+	log.Println("Starting...")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+		log.Printf("Defaulting to port %s", port)
+	}
+	log.Printf("Listening on port %s", port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	log.Println("handler:", r.Method, r.URL)
+
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "registry is read-only", http.StatusBadRequest)
+		return
+	}
+
+	switch r.URL.Path {
+	case "/v2/", "/v2":
+		w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
+		return
+	default:
+		proxy(w, r)
+	}
+	return
+}
+
+func proxy(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+
+	// /v2/ubuntu/manifests/latest -> ubuntu
+	// /v2/example.biz/foo/bar/manifests/latest -> example.biz/foo/bar
+	repostr := strings.Join(parts[2:len(parts)-2], "/")
+	repo, err := name.NewRepository(repostr)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error parsing repository name: %s", err), http.StatusBadRequest)
+		return
+	}
+	repo.RegistryStr()
+
+	url := fmt.Sprintf("https://%s/v2/%s/%s", repo.RegistryStr(), repo.RepositoryStr(), strings.Join(parts[len(parts)-2:], "/"))
+	log.Println("--> GET", url)
+	req, _ := http.NewRequest(r.Method, url, nil)
+	for k, v := range r.Header {
+		for _, vv := range v {
+			req.Header.Add(k, vv)
+			if k == "Authorization" {
+				vv = "REDACTED"
+			}
+			log.Println("--> header", k, vv)
+		}
+	}
+
+	// If the request is coming in without auth, get some auth.
+	//
+	// It's unlikely the request comes in with auth already attached, since
+	// that would have required /v2 to point to /token and for /token to
+	// have generated some creds.
+	if req.Header.Get("Authorization") == "" {
+		log.Println("Getting token...")
+		t, err := getToken(repo)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+t)
+	}
+
+	log.Println("-->", req.Method, req.URL)
+	resp, err := http.DefaultTransport.RoundTrip(req) // Transport doesn't follow redirects.
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	log.Println("<--", resp.StatusCode)
+	for k, v := range resp.Header {
+		for _, vv := range v {
+			log.Println("<-- header", k, vv)
+			w.Header().Add(k, vv)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	if parts[len(parts)-2] != "blobs" {
+		io.Copy(w, resp.Body)
+	}
+}
+
+func getToken(repo name.Repository) (string, error) {
+	// Ping /v2/, determine the registry's auth scheme.
+	url := fmt.Sprintf("https://%s/v2/", repo.RegistryStr())
+	log.Println("--> GET", url)
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	log.Println("<--", resp.StatusCode)
+	for k, v := range resp.Header {
+		for _, vv := range v {
+			log.Println("<-- header", k, vv)
+		}
+	}
+	if resp.StatusCode == http.StatusOK {
+		return "", nil // Registry doesn't require auth.
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		return "", fmt.Errorf("unexpected status code (%s): %d", url, resp.StatusCode)
+	}
+	chs := authchallenge.ResponseChallenges(resp)
+	if len(chs) == 0 {
+		return "", nil // Registry doesn't require auth.
+	}
+	if strings.ToLower(chs[0].Scheme) != "bearer" {
+		return "", fmt.Errorf("unsupported auth scheme: %s", chs[0].Scheme)
+	}
+
+	// Ping token endpoint, get a token.
+	service := chs[0].Parameters["service"]
+	realm := chs[0].Parameters["realm"]
+	url = fmt.Sprintf("%s?scope=repository:%s:pull&service=%s", realm, repo.RepositoryStr(), service)
+	log.Println("--> GET", url)
+	resp, err = http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	log.Println("<--", resp.StatusCode)
+	for k, v := range resp.Header {
+		for _, vv := range v {
+			log.Println("<-- header", k, vv)
+		}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code (%s): %d", url, resp.StatusCode)
+	}
+	defer resp.Body.Close()
+	var tokenResp struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", err
+	}
+	return tokenResp.Token, nil
+}
