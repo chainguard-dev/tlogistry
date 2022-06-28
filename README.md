@@ -12,13 +12,13 @@ The effect is **transparently verifiable immutable tags for public images**, for
 Instead of:
 
 ```
-docker run --rm -it alpine:3.16.0
+docker pull alpine:3.16.0
 ```
 
 Just add `tlog.kontain.me/`:
 
 ```
-docker run --rm -it tlog.kontain.me/alpine:3.16.0
+docker pull tlog.kontain.me/alpine:3.16.0
 ```
 
 Or, in your `Dockerfile`, instead of this:
@@ -63,6 +63,23 @@ Tlog-Uuid: 362f8ecba72f432641632fca55dd510f1efcf89105458562f5d5e828262762b5e1ef2
 ```
 
 If the request resulted in a new entry being created in Rekor (i.e., if this was the first time the registry has seen the tag), the `Tlog-First-Seen: true` header is also set in the response.
+
+# Deploying
+
+```
+terraform init
+terraform apply -var project=[MY-PROJECT]
+```
+
+This will build the app with [`ko`](https://github.com/google/ko) and deploy it to your project.
+
+By default it deploys in `us-east4`, but you can change this with `-var region=[MY-REGION]`.
+
+The generated Cloud Run URL will be something like https://tlogistry-blahblah-uk.a.run.app, which you can interact with using:
+
+```
+docker pull tlogistry-blahblah-uk.a.run.app/alpine:3.16.0
+```
 
 # Frequently Asked Questions
 
