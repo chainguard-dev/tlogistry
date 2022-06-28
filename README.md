@@ -50,7 +50,7 @@ If there wasn't a previous record of this image by tag, it writes one in Rekor f
 The service runs on [Google Cloud Run](https://cloud.google.com/run), and entries in Rekor contain a keyless signature (using Sigstore's code signing cerificate authority, [Fulcio](https://docs.sigstore.dev/fulcio/overview/)) associated with the service's [service account](https://cloud.google.com/run/docs/configuring/service-accounts).
 The instance's service account is `tlogistry@kontaindotme.iam.gserviceaccount.com`.
 
-When a manifest request consults Rekor, informaiton about the associated entry is included in headers in the response:
+When a manifest request consults Rekor, information about the associated entry is included in headers in the response:
 
 ```
 --> GET https://tlog.kontain.me/v2/registry.example.biz/my/image/manifests/v1.2.3
