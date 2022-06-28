@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	authchallenge "github.com/docker/distribution/registry/client/auth/challenge"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/imjasonh/tlogistry/internal/rekor"
 )
 
 func main() {
@@ -80,6 +82,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 	// If this is a request for manifest by tag, check Rekor to see if we have a digest for it.
 	var tag name.Tag
 	var wantDigest string
+	var info *rekor.Info
 	if isManifestTagRequest {
 		tagstr := parts[len(parts)-1]
 		var err error
@@ -88,7 +91,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("error parsing tag: %s", err), http.StatusInternalServerError)
 			return
 		}
-		wantDigest, err = rekorGet(ctx, tag)
+		wantDigest, info, err = rekor.Get(ctx, tag)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("error looking up digest for tag %s: %s", tag, err), http.StatusInternalServerError)
 			return
@@ -131,18 +134,26 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add(k, vv)
 		}
 	}
-	w.WriteHeader(resp.StatusCode)
-	if parts[len(parts)-2] != "blobs" { // Never proxy blobs.
-		io.Copy(w, resp.Body)
-	}
 
 	if isManifestTagRequest && // If this is a request for manifest by tag,
 		gotDigest != "" && // and we have the digest now,
 		wantDigest == "" { // and we didn't have one before --> record it in Rekor.
 		log.Println("=== REKOR: writing digest for tag", tag, gotDigest)
-		if rekorPut(ctx, io.Discard, tag, gotDigest) != nil {
+		if info, err = rekor.Put(ctx, tag, gotDigest); err != nil {
 			log.Println("!!! ERROR WRITING TO REKOR:", err)
 		}
+		// This request made us write an entry for the first time.
+		w.Header().Set("TLog-First-Seen", "true")
+	}
+
+	if info != nil {
+		w.Header().Set("TLog-UUID", info.UUID)
+		w.Header().Set("TLog-LogIndex", fmt.Sprintf("%d", info.LogIndex))
+		w.Header().Set("TLog-IntegratedTime", info.IntegratedTime.Format(time.RFC3339))
+	}
+	w.WriteHeader(resp.StatusCode)
+	if parts[len(parts)-2] != "blobs" { // Never proxy blobs.
+		io.Copy(w, resp.Body)
 	}
 }
 
