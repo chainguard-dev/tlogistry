@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,9 +10,13 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	authchallenge "github.com/docker/distribution/registry/client/auth/challenge"
+	"github.com/gomarkdown/markdown"
+	"github.com/gomarkdown/markdown/html"
+	"github.com/gomarkdown/markdown/parser"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/imjasonh/tlogistry/internal/rekor"
 )
@@ -19,6 +24,8 @@ import (
 func main() {
 	flag.Parse()
 
+	http.HandleFunc("/", handleHome)
+	http.HandleFunc("/style.css", handleStyle)
 	http.HandleFunc("/v2/", handler)
 
 	log.Println("Starting...")
@@ -29,6 +36,32 @@ func main() {
 	}
 	log.Printf("Listening on port %s", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
+}
+
+//go:embed README.md
+var readmeMD []byte
+var readmeHTML []byte
+var homeOnce sync.Once
+
+//go:embed style.css
+var style []byte
+
+func handleHome(w http.ResponseWriter, _ *http.Request) {
+	homeOnce.Do(func() {
+		readmeHTML = markdown.ToHTML(readmeMD,
+			parser.NewWithExtensions(parser.CommonExtensions),
+			html.NewRenderer(html.RendererOptions{
+				CSS:   "style.css",
+				Title: "tlog.kontain.me",
+				Flags: html.CommonFlags | html.CompletePage | html.HrefTargetBlank,
+			}))
+	})
+	w.Write(readmeHTML)
+}
+
+func handleStyle(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/css")
+	w.Write(style)
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {

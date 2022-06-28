@@ -1,0 +1,13 @@
+body {
+    margin-left: auto;
+    margin-right: auto;
+    border: 1px solid lightgrey;
+    width: 700px;
+    font-family: Arial, Helvetica, sans-serif;
+    padding: 30px;
+    line-height: 120%;
+}
+pre {
+    background-color: lightgrey;
+    padding: 4px;
+}

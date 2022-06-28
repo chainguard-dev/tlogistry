@@ -7,7 +7,7 @@ On subsequent requests for a manifest by tag, it checks Rekor to see if it's see
 
 The effect is **transparently verifiable immutable tags for public images**, for any public image registry, without trusting that the registry actually blocks tag updates.
 
-# How To Use It
+## How To Use It
 
 Instead of:
 
@@ -35,7 +35,7 @@ FROM tlog.kontain.me/alpine:3.16.0
 ...
 ```
 
-# How It Works
+## How It Works
 
 When you pull an image through `tlog.kontain.me`, requests for manifests and blobs by immutable content-addressed digest are simply forwared -- `tlog.kontain.me` doesn't store any data, it just forwards your request to the real registry.
 
@@ -48,6 +48,7 @@ If the digest doesn't match, that means someone updated the tag, and the proxied
 If there wasn't a previous record of this image by tag, it writes one in Rekor for next time.
 
 The service runs on [Google Cloud Run](https://cloud.google.com/run), and entries in Rekor contain a keyless signature (using Sigstore's code signing cerificate authority, [Fulcio](https://docs.sigstore.dev/fulcio/overview/)) associated with the service's [service account](https://cloud.google.com/run/docs/configuring/service-accounts).
+The instance's service account is `tlogistry@kontaindotme.iam.gserviceaccount.com`.
 
 When a manifest request consults Rekor, informaiton about the associated entry is included in headers in the response:
 
@@ -64,7 +65,7 @@ Tlog-Uuid: 362f8ecba72f432641632fca55dd510f1efcf89105458562f5d5e828262762b5e1ef2
 
 If the request resulted in a new entry being created in Rekor (i.e., if this was the first time the registry has seen the tag), the `Tlog-First-Seen: true` header is also set in the response.
 
-# Deploying
+## Deploying
 
 ```
 terraform init
@@ -81,7 +82,7 @@ The generated Cloud Run URL will be something like https://tlogistry-blahblah-uk
 docker pull tlogistry-blahblah-uk.a.run.app/alpine:3.16.0
 ```
 
-# Frequently Asked Questions
+## Frequently Asked Questions
 
 ### What about `:latest`?
 
