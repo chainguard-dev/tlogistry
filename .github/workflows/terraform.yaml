@@ -29,7 +29,4 @@ jobs:
           terraform init
           terraform validate
           terraform fmt -check -diff
-          terraform plan
-      - if: ${{ github.event_name == 'push' }}
-        run: |
-          echo TODO auth and terraform apply to prod
+          # TODO: setup auth, plan and apply
