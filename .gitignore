@@ -1,5 +1,8 @@
 tlogistry
 
+# Let GitHub Actions rebuild this each time.
+.terraform.lock.hcl
+
 ###############################################################################
 # https://github.com/github/gitignore/blob/main/Terraform.gitignore
 ###############################################################################
