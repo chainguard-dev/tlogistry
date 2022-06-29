@@ -16,11 +16,11 @@ provider "ko" {
 }
 
 variable "project" {
-  type = string
+  type    = string
   default = "kontaindotme"
 }
 variable "region" {
-  type = string
+  type    = string
   default = "us-east4"
 }
 

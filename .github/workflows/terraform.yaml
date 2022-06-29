@@ -28,7 +28,7 @@ jobs:
       - run: |
           terraform init
           terraform validate
-          terraform fmt -check
+          terraform fmt -check -diff
           terraform plan
       - if: ${{ github.event_name == 'push' }}
         run: |
