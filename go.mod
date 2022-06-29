@@ -9,6 +9,7 @@ require (
 	github.com/gomarkdown/markdown v0.0.0-20220627144906-e9a81102ebeb
 	github.com/google/go-containerregistry v0.10.0
 	github.com/in-toto/in-toto-golang v0.3.4-0.20211211042327-af1f9fb822bf
+	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/sigstore/fulcio v0.5.0
 	github.com/sigstore/rekor v0.8.2
 	github.com/sigstore/sigstore v1.3.0

@@ -17,6 +17,7 @@ provider "ko" {
 
 variable "project" {
   type = string
+  default = "kontaindotme"
 }
 variable "region" {
   type = string

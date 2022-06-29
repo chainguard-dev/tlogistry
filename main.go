@@ -3,12 +3,10 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -19,23 +17,23 @@ import (
 	"github.com/gomarkdown/markdown/parser"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/imjasonh/tlogistry/internal/rekor"
+	"github.com/kelseyhightower/envconfig"
 )
 
 func main() {
-	flag.Parse()
+	var env struct {
+		Port int64 `envconfig:"PORT" default:"8080"`
+	}
+	if err := envconfig.Process("", &env); err != nil {
+		log.Fatalf("envconfig: %v", err)
+	}
 
 	http.HandleFunc("/", handleHome)
 	http.HandleFunc("/style.css", handleStyle)
 	http.HandleFunc("/v2/", handler)
 
-	log.Println("Starting...")
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-		log.Printf("Defaulting to port %s", port)
-	}
-	log.Printf("Listening on port %s", port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
+	log.Printf("Listening on port %d", env.Port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", env.Port), nil))
 }
 
 //go:embed README.md

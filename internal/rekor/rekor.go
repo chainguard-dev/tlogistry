@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/in-toto/in-toto-golang/in_toto"
+	"github.com/kelseyhightower/envconfig"
 	fapi "github.com/sigstore/fulcio/pkg/api"
 	rekor "github.com/sigstore/rekor/pkg/client"
 	"github.com/sigstore/rekor/pkg/generated/client"
@@ -35,24 +36,28 @@ import (
 	"github.com/sigstore/sigstore/pkg/signature/dsse"
 )
 
-const (
-	aud           = "sigstore"
-	fulcioURL     = "https://fulcio.sigstore.dev"
-	fulcioTimeout = time.Minute
-	rekorURL      = "https://rekor.sigstore.dev"
-	rekorTimeout  = time.Minute
-)
-
 var rekorClient *client.Rekor
 var fulcioClient fapi.LegacyClient
 
+var env struct {
+	Audience      string        `envconfig:"AUDIENCE" default:"sigstore"`
+	RekorURL      string        `envconfig:"REKOR_URL" default:"https://rekor.sigstore.dev"`
+	FulcioURL     string        `envconfig:"FULCIO_URL" default:"https://fulcio.sigstore.dev"`
+	FulcioTimeout time.Duration `envconfig:"FULCIO_TIMEOUT" default:"1m"`
+	RekorTimeout  time.Duration `envconfig:"REKOR_TIMEOUT" default:"1m"`
+}
+
 func init() {
+	if err := envconfig.Process("", &env); err != nil {
+		log.Fatalf("envconfig: %v", err)
+	}
+
 	var err error
-	rekorClient, err = rekor.GetRekorClient(rekorURL)
+	rekorClient, err = rekor.GetRekorClient(env.RekorURL)
 	if err != nil {
 		log.Fatalf("creating rekor client: %v", err)
 	}
-	fulcioServer, err := neturl.Parse(fulcioURL)
+	fulcioServer, err := neturl.Parse(env.FulcioURL)
 	if err != nil {
 		log.Fatalf("creating Fulcio client: %v", err)
 	}
@@ -96,7 +101,7 @@ func getMetadata(url string) (string, error) {
 }
 
 func idtoken(ctx context.Context) (idtoken string, err error) {
-	return getMetadata("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=" + aud)
+	return getMetadata("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=" + env.Audience)
 }
 
 // Info represents information found in Rekor about the tag.
@@ -168,7 +173,7 @@ func Put(ctx context.Context, tag name.Tag, digest string) (*Info, error) {
 	// Record tag + digest, with ephemeral Fulcio cert as private key.
 	certPEMBase64 := strfmt.Base64(fresp.CertPEM)
 	params := rentries.NewCreateLogEntryParams()
-	params.SetTimeout(fulcioTimeout)
+	params.SetTimeout(env.FulcioTimeout)
 	params.SetProposedEntry(&rmodels.Intoto{
 		APIVersion: swag.String("0.0.1"),
 		Spec: rmodels.IntotoV001Schema{
@@ -216,7 +221,7 @@ func Get(ctx context.Context, tag name.Tag) (string, *Info, error) {
 
 	// Find entries for digest of fully qualified tagged image ref.
 	iparams := rindex.NewSearchIndexParams()
-	iparams.SetTimeout(rekorTimeout)
+	iparams.SetTimeout(env.RekorTimeout)
 	iparams.SetQuery(&rmodels.SearchIndex{Hash: fmt.Sprintf("%x", sha256.Sum256([]byte(tag.String())))}) // Search by the digest of the tag.
 	iresp, err := rekorClient.Index.SearchIndex(iparams)
 	if err != nil {
@@ -229,7 +234,7 @@ func Get(ctx context.Context, tag name.Tag) (string, *Info, error) {
 	for _, e := range iresp.Payload {
 		log.Println("- matched found Rekor entry:", e)
 		gparams := rentries.NewGetLogEntryByUUIDParams()
-		gparams.SetTimeout(rekorTimeout)
+		gparams.SetTimeout(env.RekorTimeout)
 		gparams.SetEntryUUID(e)
 		gresp, err := rekorClient.Entries.GetLogEntryByUUID(gparams)
 		if err != nil {
