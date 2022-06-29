@@ -25,10 +25,10 @@ jobs:
           go install github.com/google/go-containerregistry/cmd/registry
           registry &
           export KO_DOCKER_REPO=localhost:1338
-
+      - run: |
+          terraform init
           terraform validate
           terraform fmt -check
-          terraform init
           terraform plan
       - if: ${{ github.event_name == 'push' }}
         run: |
