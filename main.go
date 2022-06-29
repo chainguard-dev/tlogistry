@@ -54,12 +54,16 @@ func handleHome(w http.ResponseWriter, _ *http.Request) {
 				Flags: html.CommonFlags | html.CompletePage | html.HrefTargetBlank,
 			}))
 	})
-	w.Write(readmeHTML)
+	if _, err := w.Write(readmeHTML); err != nil {
+		log.Printf("!!! ERROR WRITING HTML: %v", err)
+	}
 }
 
 func handleStyle(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/css")
-	w.Write(style)
+	if _, err := w.Write(style); err != nil {
+		log.Printf("!!! ERROR WRITING STYLE: %v", err)
+	}
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -73,11 +77,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/v2/", "/v2":
 		w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
-		return
 	default:
 		proxy(w, r)
 	}
-	return
 }
 
 func proxy(w http.ResponseWriter, r *http.Request) {
@@ -184,7 +186,9 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 	if parts[len(parts)-2] != "blobs" { // Never proxy blobs.
-		io.Copy(w, resp.Body)
+		if _, err := io.Copy(w, resp.Body); err != nil {
+			log.Println("!!! ERROR COPYING RESPONSE BODY:", err)
+		}
 	}
 }
 

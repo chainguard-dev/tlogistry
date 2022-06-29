@@ -1,0 +1,35 @@
+name: terraform
+on:
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    name: terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.17
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_wrapper: false
+      - run: |
+          # Run a local repo for ko build to push to.
+          go install github.com/google/go-containerregistry/cmd/registry
+          registry &
+          export KO_DOCKER_REPO=localhost:1338
+
+          terraform validate
+          terraform fmt -check
+          terraform init
+          terraform plan
+      - if: ${{ github.event_name == 'push' }}
+        run: |
+          echo TODO auth and terraform apply to prod
