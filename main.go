@@ -70,7 +70,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	log.Println("handler:", r.Method, r.URL)
 
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "registry is read-only", http.StatusBadRequest)
+		serveError(w, regError{status: http.StatusMethodNotAllowed, Code: "DENIED", Message: "tlogistry is read-only"})
 		return
 	}
 
@@ -92,7 +92,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 	repostr := strings.Join(parts[2:len(parts)-2], "/")
 	repo, err := name.NewRepository(repostr)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("error parsing repository name: %s", err), http.StatusBadRequest)
+		serveError(w, regError{status: http.StatusBadRequest, Code: "NAME_INVALID", Message: fmt.Sprintf("parsing repository name: %v", err)})
 		return
 	}
 
@@ -121,12 +121,12 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 		var err error
 		tag, err = name.NewTag(fmt.Sprintf("%s:%s", repo.String(), tagstr))
 		if err != nil {
-			http.Error(w, fmt.Sprintf("error parsing tag: %s", err), http.StatusInternalServerError)
+			serveError(w, regError{status: http.StatusBadRequest, Code: "NAME_INVALID", Message: fmt.Sprintf("parsing tag: %v", err)})
 			return
 		}
 		wantDigest, info, err = rekor.Get(ctx, tag)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("error looking up digest for tag %s: %s", tag, err), http.StatusInternalServerError)
+			serveError(w, regError{status: http.StatusInternalServerError, Code: "INTERNAL_ERROR", Message: fmt.Sprintf("looking up digest for tag %q: %v", tag, err)})
 			return
 		}
 		log.Println("=== REKOR: found digest for tag", tag, wantDigest)
@@ -141,7 +141,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 		log.Println("  Getting token...")
 		t, err := getToken(repo)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			serveError(w, regError{status: http.StatusInternalServerError, Code: "INTERNAL_ERROR", Message: fmt.Sprintf("getting token: %v", err)})
 			return
 		}
 		req.Header.Set("Authorization", "Bearer "+t)
@@ -149,14 +149,14 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := http.DefaultTransport.RoundTrip(req) // Transport doesn't follow redirects.
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		serveError(w, regError{status: http.StatusInternalServerError, Code: "INTERNAL_ERROR", Message: fmt.Sprintf("fetching %q: %v", url, err)})
 		return
 	}
 	defer resp.Body.Close()
 
 	gotDigest := resp.Header.Get("Docker-Content-Digest")
 	if wantDigest != "" && gotDigest != wantDigest {
-		http.Error(w, fmt.Sprintf("got digest %q for tag %s, want %q", gotDigest, tag, wantDigest), http.StatusInternalServerError)
+		serveError(w, digestMismatch(tag.String(), gotDigest, wantDigest))
 		return
 	}
 
@@ -246,4 +246,37 @@ func getToken(repo name.Repository) (string, error) {
 		return "", err
 	}
 	return tokenResp.Token, nil
+}
+
+func serveError(w http.ResponseWriter, re regError) {
+	http.Error(w, "", re.status)
+	json.NewEncoder(w).Encode(&resp{
+		Errors: []regError{re},
+	})
+}
+
+type resp struct {
+	Errors []regError `json:"errors"`
+}
+
+type regError struct {
+	status  int
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func digestMismatch(tag, got, want string) regError {
+	return regError{
+		status:  http.StatusBadRequest,
+		Code:    "TAG_INVALID",
+		Message: fmt.Sprintf("tag %q mismatch; got %q, want %q", tag, got, want),
+	}
+}
+
+func newRegError(err error) regError {
+	return regError{
+		status:  http.StatusInternalServerError,
+		Code:    "INTERNAL_ERROR",
+		Message: err.Error(),
+	}
 }

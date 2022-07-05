@@ -68,6 +68,8 @@ If the request resulted in a new entry being created in Rekor (i.e., if this was
 ## Deploying
 
 ```
+gcloud auth login
+gcloud auth application-default login
 terraform init
 terraform apply -var project=[MY-PROJECT]
 ```
