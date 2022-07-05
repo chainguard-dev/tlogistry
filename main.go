@@ -126,7 +126,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 		}
 		wantDigest, info, err = rekor.Get(ctx, tag)
 		if err != nil {
-			serveError(w, regError{status: http.StatusInternalServerError, Code: "INTERNAL_ERROR", Message: fmt.Sprintf("looking up digest for tag %q: %v", tag, err)})
+			serveError(w, newRegError(fmt.Errorf("looking up digest for tag %q: %v", tag, err)))
 			return
 		}
 		log.Println("=== REKOR: found digest for tag", tag, wantDigest)
@@ -141,7 +141,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 		log.Println("  Getting token...")
 		t, err := getToken(repo)
 		if err != nil {
-			serveError(w, regError{status: http.StatusInternalServerError, Code: "INTERNAL_ERROR", Message: fmt.Sprintf("getting token: %v", err)})
+			serveError(w, newRegError(fmt.Errorf("getting token: %v", err)))
 			return
 		}
 		req.Header.Set("Authorization", "Bearer "+t)
@@ -149,7 +149,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := http.DefaultTransport.RoundTrip(req) // Transport doesn't follow redirects.
 	if err != nil {
-		serveError(w, regError{status: http.StatusInternalServerError, Code: "INTERNAL_ERROR", Message: fmt.Sprintf("fetching %q: %v", url, err)})
+		serveError(w, newRegError(fmt.Errorf("fetching %q: %v", url, err)))
 		return
 	}
 	defer resp.Body.Close()
@@ -250,9 +250,11 @@ func getToken(repo name.Repository) (string, error) {
 
 func serveError(w http.ResponseWriter, re regError) {
 	http.Error(w, "", re.status)
-	json.NewEncoder(w).Encode(&resp{
+	if err := json.NewEncoder(w).Encode(&resp{
 		Errors: []regError{re},
-	})
+	}); err != nil {
+		log.Printf("!!! ERROR WRITING ERROR BODY (%+v): %v", re, err)
+	}
 }
 
 type resp struct {
