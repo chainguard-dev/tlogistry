@@ -29,7 +29,7 @@ provider "google" {
 }
 
 resource "ko_image" "tlogistry" {
-  importpath = "github.com/imjasonh/tlogistry"
+  importpath = "github.com/chainguard-dev/tlogistry"
 }
 
 resource "google_cloud_run_service" "svc" {
@@ -47,6 +47,10 @@ resource "google_cloud_run_service" "svc" {
     percent         = 100
     latest_revision = true
   }
+}
+
+output "url" {
+  value = google_cloud_run_service.svc.status[0].url
 }
 
 // Anybody can access the service.

@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chainguard-dev/tlogistry/internal/rekor"
 	authchallenge "github.com/docker/distribution/registry/client/auth/challenge"
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/html"
 	"github.com/gomarkdown/markdown/parser"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/imjasonh/tlogistry/internal/rekor"
 	"github.com/kelseyhightower/envconfig"
 )
 
@@ -50,7 +50,7 @@ func handleHome(w http.ResponseWriter, _ *http.Request) {
 			parser.NewWithExtensions(parser.CommonExtensions),
 			html.NewRenderer(html.RendererOptions{
 				CSS:   "style.css",
-				Title: "tlog.kontain.me",
+				Title: "tlogistry.dev",
 				Flags: html.CommonFlags | html.CompletePage | html.HrefTargetBlank,
 			}))
 	})

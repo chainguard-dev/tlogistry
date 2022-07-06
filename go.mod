@@ -1,4 +1,4 @@
-module github.com/imjasonh/tlogistry
+module github.com/chainguard-dev/tlogistry
 
 go 1.18
 
