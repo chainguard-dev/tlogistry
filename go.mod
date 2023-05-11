@@ -3,7 +3,7 @@ module github.com/chainguard-dev/tlogistry
 go 1.18
 
 require (
-	github.com/docker/distribution v2.8.1+incompatible
+	github.com/docker/distribution v2.8.2+incompatible
 	github.com/go-openapi/strfmt v0.21.2
 	github.com/go-openapi/swag v0.21.1
 	github.com/gomarkdown/markdown v0.0.0-20220627144906-e9a81102ebeb
